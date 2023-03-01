@@ -122,6 +122,7 @@ def url_func():
 def base_domain_func():    
     # Parent Domains function
     base_domains = []
+    unique_base_domains = []
     for each_base_domain in unique_urls:
         each_base_domain_fixed = re.findall("https?://(.*?)/", each_base_domain)
         base_domains.append(each_base_domain_fixed)
