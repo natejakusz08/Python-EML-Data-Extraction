@@ -145,10 +145,10 @@ def base_domain_func():
     for each_domain in unique_base_domains:
         each_domain_list = each_domain.split('.')
         root_domain_join = ".".join(each_domain_list[-2:])    
-        each_analysis = vt_url_analyze(each_domain)
+        each_analysis = vt_url_analyze(root_domain_join)
         filehandle = open('emlnotes.txt', 'a')
-        filehandle.write("* {0}\n\t* Virus Total Analysis: {1}\n".format(each_domain, each_analysis))
-        print("* {0}\n\t* Virus Total Analysis: {1}\n".format(each_domain, each_analysis))
+        filehandle.write("* {0}\n\t* Virus Total Analysis: {1}\n".format(root_domain_join, each_analysis))
+        print("* {0}\n\t* Virus Total Analysis: {1}\n".format(root_domain_join, each_analysis))
     
     
 def attachment_func():
