@@ -2,24 +2,33 @@ import re
 import hashlib
 import codecs
 import sys
+import requests
+
 
 if sys.version_info.major == 2:
     input = raw_input
 
-def analyzeEML():
+
+# Setting global variables so I can ref it in multiple functions
+eml = None
+unique_urls = None 
+
+
+def analyze_eml_to_from():
     # extracts data from EML and stores each item as a separate variable
-    path_to_eml = input("Drag and drop EML file to get path and press ENTER!\nMake sure the file is in quotes ('') and there is no space at the end!!!\n")[1:-1]
+    path_to_eml = input("Drag and drop EML file to get path and press ENTER!\nMake sure there is no space at the end!!!\n").replace('\\','')
+    # new_path = path_to_eml.replace(' ', '\\ ')
+    global eml
     eml = open(path_to_eml, "r").read()
     app_river_check1 = re.findall("AppRiver", eml)
     #app_river_check2 = re.findall("8.31.233.164", eml)
     while not app_river_check1:
-        from_eml = re.findall("From: (.*?)\n", eml)
+        from_eml = re.findall("\sFrom: (.*?)\n", eml)
         from_eml_str =''.join(map(str,from_eml))
         to_eml = re.findall("\sTo: (.*?)\n", eml)
         to_eml_str =''.join(map(str,to_eml))
-        subject_eml = re.findall("Subject: (.*?)\n", eml)
+        subject_eml = re.findall("\sSubject: (.*?)\n", eml)
         subject_eml_str =''.join(map(str,subject_eml))
-    # could not get or function in regex to work so made two and whichever is longer (the variable with actual data in it) will be stored in a new variable
         return_path_eml_short = re.findall("\sReturn-Path: (.*?)\n",eml)
         return_path_eml_short_str =''.join(map(str,return_path_eml_short))
         return_path_eml_under = re.findall("\sReturn-Path:\s(.*?)\n", eml)
@@ -28,23 +37,33 @@ def analyzeEML():
             correct_return_path = return_path_eml_short_str
         else:
             correct_return_path = return_path_eml_under_str
+        if len(correct_return_path) < 2:
+            correct_return_path = "None"
         sender_ip = re.findall("sender IP is (.*?)\)", eml)
         sender_ip_str =''.join(map(str,sender_ip))
-        spf = re.findall("spf=(.*?)\s", eml)
+        if len(sender_ip_str) < 3:
+            sender_ip_str = "None"
+        spf = re.findall("\nAuthentication-Results: spf= ?(.*?)\s", eml)
         spf_str =''.join(map(str,spf))
-        dkim = re.findall("dkim=(.*?)\s", eml)
+        if len(spf_str) < 3:
+            spf_str = "None"
+        dkim = re.findall("\nAuthentication-Results: spf=.*?dkim= ?(.*?)\s", eml, re.DOTALL)
         dkim_str =''.join(map(str,dkim))
-        dmarc = re.findall("dmarc=(.*?)\s", eml)
+        if len(dkim_str) < 3:
+            dkim_str = "None"
+        dmarc = re.findall("\nAuthentication-Results: spf=.*?dmarc= ?(.*?)\s", eml, re.DOTALL)
         dmarc_str =''.join(map(str,dmarc))
+        if len(dmarc_str) < 3:
+            dmarc_str = "None"
+        break
     else:
-        # redscooter option
+        # appriver option
         from_eml = re.findall("\sFrom: (.*?)\n", eml)
         from_eml_str =''.join(map(str,from_eml))
         to_eml = re.findall("\sTo: (.*?)\n", eml)
         to_eml_str =''.join(map(str,to_eml))
-        subject_eml = re.findall("Subject: (.*?)\n", eml)
+        subject_eml = re.findall("\sSubject: (.*?)\n", eml)
         subject_eml_str =''.join(map(str,subject_eml))
-    ## could not get or function in regex to work so made two and whichever is longer (the variable with actual data in it) will be stored in a new variable
         return_path_eml_short = re.findall("\sReturn-Path: (.*?)\n",eml)
         return_path_eml_short_str =''.join(map(str,return_path_eml_short))
         return_path_eml_under = re.findall("\sReturn-Path:\s(.*?)\n", eml)
@@ -55,45 +74,118 @@ def analyzeEML():
             correct_return_path = return_path_eml_under_str
         sender_ip = re.findall(r"X-Note: SPF: IP: (\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}) ", eml)
         sender_ip_str =''.join(map(str,sender_ip))
+        if len(sender_ip_str) < 3:
+            sender_ip_str = "None"
         spf = re.findall("X-Note: SPF: (\w*?)\s", eml)
         spf_str =''.join(map(str,spf))
+        if spf_str == False:
+            spf_str = "None"
         dkim = re.findall("X-Note: DKIM: (.*?):", eml)
         dkim_str =''.join(map(str,dkim))
         if dkim_str == "Pass":
-            dkim_str == "Pass"
+            dkim_str = "Pass"
         else:
-            dkim_str == "Not Listed"
+            dkim_str = "Not Listed"
         dmarc = re.findall("X-Note: DMARC: (Pass)\s", eml)
         dmarc_str =''.join(map(str,dmarc))
         if dmarc_str == "Pass":
             dmarc_str = "Pass"
         else:
             dmarc_str = "Not Listed"
-# URLs are discovered by the originalsrc since those are already decoded and I did not have to deal with non href URLs that belong to an image or something
-    urls = re.findall('originalsrc=3D\"(.+?)\"', eml, re.DOTALL)
+    filehandle = open('emlnotes.txt', 'w')
+    filehandle.write("## Email Workflow\n--------\n```\n* From: {0}\n* To: {1}\n* Subject: {2}\n* Return Path: {3}\n* Sender IP: {4}\n* SPF/DKIM/DMARC: {5}/{6}/{7}\n```\n--------\n### Full URL(s)\n```\n".format(from_eml_str, to_eml_str, subject_eml_str, correct_return_path, sender_ip_str, spf_str, dkim_str, dmarc_str))
+    return print("## Email Workflow\n--------\n```\n* From: {0}\n* To: {1}\n* Subject: {2}\n* Return Path: {3}\n* Sender IP: {4}\n* SPF/DKIM/DMARC: {5}/{6}/{7}\n```\n--------\n### Full URL(s)\n```\n".format(from_eml_str, to_eml_str, subject_eml_str, correct_return_path, sender_ip_str, spf_str, dkim_str, dmarc_str))
+
+
+def url_func():
+    urls = re.findall('originalsrc=3?D?\"(.+?)\"', eml, re.DOTALL)
     fixed_urls = []
     for each_url in urls:
         each_url_fixed =  each_url.replace('=\n','')
         fixed_urls.append(each_url_fixed)
+    dict1 = {}
+    # turns into dictionary and back to remove duplicates
+    for entry in fixed_urls:
+        dict1[entry] = 'ow now brown cow'
+    global unique_urls
+    unique_urls = list(dict1.keys())
+    # finds URLs and cuts out the http and path after //s
+    for each_unique_url in unique_urls:
+        filehandle = open('emlnotes.txt', 'a')
+        filehandle.write("* {0}\n".format(each_unique_url))
+        print("* {0}\n".format(each_unique_url))
+    filehandle = open('emlnotes.txt', 'a')
+    filehandle.write("```\n--------\n### Parent Domain(s)\n```\n")    
+    return print("```\n--------\n### Parent Domain(s)\n```\n")
+
+
+def base_domain_func():    
+    # Parent Domains function
     base_domains = []
-    for each_base_domain in fixed_urls:
+    for each_base_domain in unique_urls:
         each_base_domain_fixed = re.findall("https?://(.*?)/", each_base_domain)
         base_domains.append(each_base_domain_fixed)
+        microsoft_test = re.findall("shash=3D", each_base_domain)
+        microsoft_test_string =''.join(map(str, microsoft_test))
+        dict3 = {}
+        dict4 = {}
+        if microsoft_test_string == 'shash=3D':
+            print("Likely a legitimate Microsoft Email.\n")
+            filehandle = open('emlnotes.txt', 'a')
+            filehandle.write("Likely a legitimate Microsoft Email.\n")  
+        #removes the double brackets [[]]
+        else:
+            base_domains_list = [i[0] for i in base_domains]
+        # removes duplicates of base domains list and makes unique base domains            
+            for joe in base_domains_list:
+                dict3[joe] = 'unique new york'
+                unique_base_domains = list(dict3.keys())
+    domain_analysis = []
+    for each_domain in unique_base_domains:
+        each_domain_list = each_domain.split('.')
+        root_domain_join = ".".join(each_domain_list[-2:])    
+        each_analysis = vt_url_analyze(each_domain)
+        filehandle = open('emlnotes.txt', 'a')
+        filehandle.write("* {0}\n\t* Virus Total Analysis: {1}\n".format(each_domain, each_analysis))
+        print("* {0}\n\t* Virus Total Analysis: {1}\n".format(each_domain, each_analysis))
+    
+    
+def attachment_func():
     file_name = re.findall("filename(.*?)Content-Transfer", eml, re.DOTALL)
     file_name_str =''.join(map(str,file_name))
-    #file_64 = re.findall("Encoding: base64\s*?(\S*?)\s", eml, re.DOTALL)
-    #file_64_str =''.join(map(str,file_64))
-    #file_64_encode = codecs.encode(file_64_str)
-    #file_64_hash = hashlib.sha256(file_64_encode).hexdigest()
-    # makes a local file with the notes AND also outputs it to the screen
-    filehandle = open('emlnotes.txt', 'w')
-    filehandle.write("## Email Workflow\n--------\n```\n* From: {0}\n* To: {1}\n* Subject: {2}\n* Return Path: {3}\n* Sender IP: {4}\n* SPF/DKIM/DMARC: {5}/{6}/{7}\n```\n--------\n### Full URL(s)\n```\n* {8}\n```\n--------\n### Base Domains\n```\n* {9}\n```\n--------\n### Attachment(s)\n\n* File Name: {10}\n* File Hash (SHA-256): \n\n--------\n### Email Gist\n\n*\n\n--------\n### Summary\n\n* User reported email\n* Email is\n* Customer notification sent\n* No further action required".format(from_eml_str, to_eml_str, subject_eml_str, correct_return_path, sender_ip_str, spf_str, dkim_str, dmarc_str, fixed_urls, base_domains, file_name_str))
-    filehandle2 = open('emlnotes.txt', 'a')
-    return print("## Email Workflow\n--------\n```\n* From: {0}\n* To: {1}\n* Subject: {2}\n* Return Path: {3}\n* Sender IP: {4}\n* SPF/DKIM/DMARC: {5}/{6}/{7}\n```\n--------\n### Full URL(s)\n```\n* {8}\n```\n--------\n### Base Domains\n```\n* {9}\n```\n--------\n### Attachment(s)\n\n* File Name: {10}\n* File Hash (SHA-256): \n\n--------\n### Email Gist\n\n*\n\n--------\n### Summary\n\n* User reported email\n* Email is\n* Customer notification sent\n* No further action required".format(from_eml_str, to_eml_str, subject_eml_str, correct_return_path, sender_ip_str, spf_str, dkim_str, dmarc_str, fixed_urls, base_domains, file_name_str))
+    filehandle = open('emlnotes.txt', 'a')
+    filehandle.write("```\n--------------\n### Attachment(s)\n\n* File Name: {0}\n* File Hash (SHA-256): \n\n--------\n### Email Gist\n\n*\n\n--------\n### Summary\n\n* User reported email\n* Email is\n* Customer notification sent\n* No further action required".format(file_name_str))
+    return print("```\n--------------\n### Attachment(s)\n\n* File Name: {0}\n* File Hash (SHA-256): \n\n--------\n### Email Gist\n\n*\n\n--------\n### Summary\n\n* User reported email\n* Email is\n* Customer notification sent\n* No further action required".format(file_name_str))
+    
+
+def vt_url_analyze(root_domain):
+    vt_url = "https://www.virustotal.com/api/v3/urls"
+    payload = "url="+root_domain
+    headers = {
+        "accept": "application/json",
+        "x-apikey": "3c6d686c51e55c37a2637db579a53ec563231c4eca6c46ebef197e9bd79982b0",
+        "content-type": "application/x-www-form-urlencoded"
+    }
+    response1 = requests.post(vt_url, data=payload, headers=headers)
+    response1_text = (response1.text)
+    url_id = re.findall("u-(.*?)-.*?\"", response1_text)[0]
+    vt_url2 = "https://www.virustotal.com/api/v3/urls/"+url_id
+    headers = {
+        "accept": "application/json",
+        "x-apikey": "3c6d686c51e55c37a2637db579a53ec563231c4eca6c46ebef197e9bd79982b0"
+    }
+    response2 = requests.get(vt_url2, headers=headers)
+    response2_text = (response2.text)
+    url_analysis = re.findall("\"last_analysis_stats\": {.*?(\"harmless\":.*?),.*?(\"malicious\": .*?),.*?(\"suspicious\": .*?),.*?(\"undetected\": .*?),.*?}", response2_text, re.DOTALL)
+    return url_analysis
 
 
 def main():
-    analyzeEML()
+    analyze_eml_to_from()
+    url_func()
+    base_domain_func()
+    attachment_func()
+
 
 if __name__=="__main__":
     main()
